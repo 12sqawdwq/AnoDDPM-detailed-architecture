@@ -1,0 +1,112 @@
+// AnoDDPM核心组件可视化
+digraph AnoDDPM {
+    // 图表设置
+    rankdir=LR;
+    splines=true;
+    fontname="Microsoft YaHei";
+    node [fontname="Microsoft YaHei", shape=box, style=filled, fillcolor=lightblue, margin=0.3];
+    edge [fontname="Microsoft YaHei"];
+    
+    // 定义子图 - 训练阶段
+    subgraph cluster_training {
+        label="训练阶段 (仅使用正常样本)";
+        style=filled;
+        color=lightgrey;
+        fontsize=16;
+        
+        normal_data [label="正常训练数据集", shape=folder];
+        forward_process [label="前向扩散过程\nq(x_t|x_0)", shape=box];
+        noise_schedule [label="噪声调度\nβ_1...β_T"];
+        unet_training [label="UNet 去噪器\nε_θ(x_t, t)", shape=box, fillcolor=lightsalmon];
+        loss [label="损失函数\nL = ||ε - ε̂||²"];
+        
+        normal_data -> forward_process;
+        noise_schedule -> forward_process;
+        forward_process -> unet_training [label="x_t"];
+        unet_training -> loss [label="预测噪声 ε̂"];
+        loss -> unet_training [label="反向传播", style=dashed];
+    }
+    
+    // 定义子图 - 推理阶段
+    subgraph cluster_inference {
+        label="推理阶段 (异常检测)";
+        style=filled;
+        color=lightgrey;
+        fontsize=16;
+        
+        test_image [label="测试图像 x", shape=note];
+        time_steps [label="选择时间步\nt ∈ {t₁,t₂,...,tₙ}"];
+        noisy_images [label="添加噪声\nx_t = √α̅_t·x + √(1-α̅_t)·ε"];
+        unet_inference [label="预训练去噪器\nε_θ(x_t, t)", shape=box, fillcolor=lightsalmon];
+        reverse_process [label="逆过程预测原图\nx̂₀_t"];
+        residual_calc [label="计算残差\nr_t = ||x - x̂₀_t||"];
+        simplex_weights [label="Simplex优化权重\nw_t≥0, ∑w_t=1"];
+        anomaly_map [label="异常热力图\nA(x) = ∑w_t·r_t(x)"];
+        anomaly_score [label="异常分数\nS(x) = ∑A(x)"];
+        
+        test_image -> time_steps;
+        time_steps -> noisy_images;
+        noisy_images -> unet_inference [label="x_t"];
+        unet_inference -> reverse_process [label="ε̂"];
+        reverse_process -> residual_calc;
+        test_image -> residual_calc [style=dashed];
+        residual_calc -> anomaly_map [label="r_t"];
+        simplex_weights -> anomaly_map [label="w_t"];
+        anomaly_map -> anomaly_score;
+    }
+    
+    // 连接训练和推理阶段
+    unet_training -> unet_inference [label="冻结参数", style=dashed, constraint=false];
+    
+    // UNet内部架构
+    subgraph cluster_unet {
+        label="UNet 模型架构细节";
+        style=filled;
+        color=lightcyan;
+        fontsize=16;
+        
+        // 简化的UNet结构
+        input_xt [label="输入: x_t, t"];
+        time_embedding [label="时间步编码"];
+        down_path [label="下采样路径\n(编码器)"];
+        middle [label="中间层\n(含自注意力)"];
+        up_path [label="上采样路径\n(解码器)"];
+        skip_connections [label="跳跃连接", shape=oval, style=dashed];
+        output_noise [label="输出: 预测噪声 ε̂"];
+        
+        input_xt -> time_embedding;
+        input_xt -> down_path;
+        time_embedding -> down_path [label="条件"];
+        down_path -> middle;
+        time_embedding -> middle [label="条件"];
+        middle -> up_path;
+        time_embedding -> up_path [label="条件"];
+        down_path -> skip_connections [style=dashed];
+        skip_connections -> up_path [style=dashed];
+        up_path -> output_noise;
+    }
+    
+    // Simplex优化过程
+    subgraph cluster_simplex {
+        label="Simplex优化过程";
+        style=filled;
+        color=lavender;
+        fontsize=16;
+        
+        multi_timestep [label="多时间步残差\nr_t1, r_t2, ..., r_tn"];
+        init_weights [label="初始化权重\nw = [1/n,...,1/n]"];
+        optimize_objective [label="优化目标函数\nJ(w) = ∑∑w_t·r_t(x_i) - λ·R(w)"];
+        simplex_constraint [label="单纯形约束\nw_t≥0, ∑w_t=1", shape=oval];
+        update_weights [label="更新权重\nw = w - η·∇J(w)"];
+        project_simplex [label="投影到单纯形"];
+        final_weights [label="最优权重 w*"];
+        
+        multi_timestep -> init_weights;
+        init_weights -> optimize_objective;
+        simplex_constraint -> optimize_objective [style=dashed];
+        optimize_objective -> update_weights;
+        update_weights -> project_simplex;
+        project_simplex -> optimize_objective [label="迭代", style=dashed];
+        project_simplex -> final_weights [label="收敛后"];
+    }
+}
